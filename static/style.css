@@ -1,11 +1,10 @@
-/* styles.css */
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
     padding: 0;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-end; /* Align the chatbox to the bottom */
     height: 100vh;
     background-color: #1f1f1f; /* Dark grey background */
     color: #e0e0e0; /* Light grey text */
@@ -13,7 +12,7 @@ body {
 
 #chatbox {
     width: 800px;
-    height: 800px;
+    height: 400px;
     border: 1px solid #00ffff; /* Cyan border */
     background-color: #2d2d2d; /* Dark grey chatbox */
     display: flex;
@@ -21,6 +20,7 @@ body {
     padding: 10px;
     border-radius: 10px; /* Rounded corners */
     box-shadow: 0 0 20px rgba(0, 255, 255, 0.3); /* Cyan shadow */
+    margin-bottom: 20px; /* Add some space from the bottom of the page */
 }
 
 #messages {
@@ -138,7 +138,7 @@ body {
 
 .loading-message {
     position: absolute; /* Position it absolutely within the chatbox */
-    top: 50%; /* Center vertically */
+    top: 70%; /* Center vertically */
     left: 50%; /* Center horizontally */
     transform: translate(-50%, -50%); /* Offset to truly center */
     font-size: 1.2em; /* Slightly larger text */
