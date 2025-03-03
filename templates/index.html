@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat with NOVA</title>
+    <!-- Link to the external CSS file for styling -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Main chatbox container -->
+    <div id="chatbox">
+        <!-- Container for displaying messages -->
+        <div id="messages">
+            <!-- Loading message displayed when the page loads -->
+            <div id="loading-message" class="loading-message">
+                <span class="spinner"></span> NOVA is ready...
+            </div>
+        </div>
+        <!-- Input box for user interaction -->
+        <div id="inputbox">
+            <!-- Text input for typing messages -->
+            <input type="text" id="userInput" placeholder="Type a message..." onkeypress="handleKeyPress(event)">
+            <!-- Button to send the message -->
+            <button id="sendButton" onclick="sendMessage()">Send</button>
+
+            <!-- Hidden file input for image upload -->
+            <input type="file" id="imageUpload" accept="image/png, image/jpeg" style="display: none;">
+            <!-- Button to trigger image upload -->
+            <button id="uploadButton" onclick="document.getElementById('imageUpload').click()">Upload Image</button>
+        </div>
+    </div>
+
+    <!-- JavaScript for handling chat functionality -->
+    <script>
+        // Global variables
+        var eventSource; // EventSource for streaming responses
+        var isNewMessage = true; // Flag to track if it's a new message
+        var invalidResponseCount = 0; // Counter to track invalid responses
+        var maxInvalidResponses = 5; // Maximum allowed invalid responses
+        var responseTimeout; // Timeout for handling stuck responses
+
+        // Function to remove the loading message with a fade-out animation
+        function removeLoadingMessage() {
+            const loadingMessage = document.getElementById('loading-message');
+            if (loadingMessage) {
+                loadingMessage.style.opacity = '0'; // Start fade-out
+                setTimeout(() => loadingMessage.remove(), 500); // Remove after fade-out
+            }
+        }
+
+        // Function to send a message
+        function sendMessage() {
+            var userInput = document.getElementById('userInput');
+            var message = userInput.value;
+            userInput.value = ''; // Clear the input field
+            if (message.trim() === '') return; // Ignore empty messages
+
+            // Remove the loading message when the user sends their first message
+            removeLoadingMessage();
+
+            // Disable the send button while waiting for a response
+            var sendButton = document.getElementById('sendButton');
+            sendButton.disabled = true;
+
+            var messagesDiv = document.getElementById('messages');
+            // Add user's message to the chatbox
+            messagesDiv.innerHTML += `<div class="message user-message"><strong>You:</strong> ${message}</div>`;
+
+            // Show typing indicator
+            messagesDiv.innerHTML += `<div class="typing-indicator">NOVA is typing...</div>`;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+
+            // Send a POST request to the /chat endpoint
+            fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: message }),
+            });
+
+            // Set up an EventSource to listen for streaming responses
+            if (eventSource) {
+                eventSource.close(); // Close the previous EventSource if it exists
+            }
+            eventSource = new EventSource('/stream');
+
+            // Set a timeout to handle stuck responses
+            responseTimeout = setTimeout(() => {
+                if (eventSource) {
+                    eventSource.close(); // Close the EventSource
+                }
+                messagesDiv.innerHTML += `<div class="message nova-message"><strong>NOVA:</strong> Error: Response timed out. Please try again.</div>`;
+                sendButton.disabled = false; // Re-enable the send button
+                removeTypingIndicator(); // Remove the typing indicator
+            }, 30000); // 30-second timeout
+
+            // Handle incoming messages from the EventSource
+            eventSource.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                // Log the data to the console for debugging
+                console.log("Received data:", data);
+
+                if (data.error) {
+                    // Handle server-side errors
+                    var errorMessage = data.error;
+                    if (data.status_code) {
+                        errorMessage += ` (Error code: ${data.status_code})`;
+                    }
+                    messagesDiv.innerHTML += `<div class="message nova-message"><strong>NOVA:</strong> ${errorMessage}</div>`;
+                    cleanupEventSource(); // Clean up resources
+                    return;
+                }
+
+                var messageContent = data.message;
+
+                // Ignore undefined or empty content
+                if (!messageContent || messageContent === "undefined") {
+                    invalidResponseCount++;
+                    if (invalidResponseCount >= maxInvalidResponses) {
+                        messagesDiv.innerHTML += `<div class="message nova-message"><strong>NOVA:</strong> Error: Too many invalid responses. Please try again.</div>`;
+                        cleanupEventSource(); // Clean up resources
+                    }
+                    return;
+                }
+
+                // Remove the typing indicator
+                removeTypingIndicator();
+
+                if (isNewMessage) {
+                    // Start a new message with "NOVA:"
+                    messagesDiv.innerHTML += `<div class="message nova-message"><strong>NOVA:</strong> ${messageContent}</div>`;
+                    isNewMessage = false; // Set flag to false
+                } else {
+                    // Append to the existing message
+                    var lastMessageDiv = messagesDiv.lastElementChild;
+                    lastMessageDiv.innerHTML += messageContent;
+                }
+
+                // Scroll to the bottom of the chatbox
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            };
+
+            // Listen for the "end" event to close the EventSource
+            eventSource.addEventListener('end', function() {
+                cleanupEventSource(); // Clean up resources
+            });
+        }
+
+        // Function to handle screenshots
+        function handleScreenshot(base64Image) {
+            // Display the screenshot in a separate container
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML += `
+                <div class="screenshot-container">
+                    <strong>Screenshot:</strong>
+                    <img src="data:image/png;base64,${base64Image}" alt="Screenshot">
+                </div>
+            `;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+
+            // Send the screenshot back to the backend to include it in the conversation
+            fetch('/upload_image', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: base64Image }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Automatically continue the conversation with the AI
+                    continueConversation();
+                } else {
+                    console.error('Failed to upload screenshot:', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error uploading screenshot:', error);
+            });
+        }
+
+        // Function to continue the conversation after a screenshot
+        function continueConversation() {
+            // Set up an EventSource to listen for streaming responses
+            if (eventSource) {
+                eventSource.close(); // Close the previous EventSource if it exists
+            }
+            eventSource = new EventSource('/stream');
+
+            // Set a timeout to handle stuck responses
+            responseTimeout = setTimeout(() => {
+                if (eventSource) {
+                    eventSource.close(); // Close the EventSource
+                }
+                const messagesDiv = document.getElementById('messages');
+                messagesDiv.innerHTML += `
+                    <div class="ai-response-container">
+                        <strong>NOVA:</strong> Error: Response timed out. Please try again.
+                    </div>
+                `;
+                document.getElementById('sendButton').disabled = false; // Re-enable the send button
+                removeTypingIndicator(); // Remove the typing indicator
+            }, 30000); // 30-second timeout
+
+            // Handle incoming messages from the EventSource
+            eventSource.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                // Log the data to the console for debugging
+                console.log("Received data:", data);
+
+                if (data.error) {
+                    // Handle server-side errors
+                    var errorMessage = data.error;
+                    if (data.status_code) {
+                        errorMessage += ` (Error code: ${data.status_code})`;
+                    }
+                    const messagesDiv = document.getElementById('messages');
+                    messagesDiv.innerHTML += `
+                        <div class="ai-response-container">
+                            <strong>NOVA:</strong> ${errorMessage}
+                        </div>
+                    `;
+                    cleanupEventSource(); // Clean up resources
+                    return;
+                }
+
+                var messageContent = data.message;
+
+                // Ignore undefined or empty content
+                if (!messageContent || messageContent === "undefined") {
+                    invalidResponseCount++;
+                    if (invalidResponseCount >= maxInvalidResponses) {
+                        const messagesDiv = document.getElementById('messages');
+                        messagesDiv.innerHTML += `
+                            <div class="ai-response-container">
+                                <strong>NOVA:</strong> Error: Too many invalid responses. Please try again.
+                            </div>
+                        `;
+                        cleanupEventSource(); // Clean up resources
+                    }
+                    return;
+                }
+
+                // Remove the typing indicator
+                removeTypingIndicator();
+
+                if (isNewMessage) {
+                    // Start a new message with "NOVA:"
+                    const messagesDiv = document.getElementById('messages');
+                    messagesDiv.innerHTML += `
+                        <div class="ai-response-container">
+                            <strong>NOVA:</strong> ${messageContent}
+                        </div>
+                    `;
+                    isNewMessage = false; // Set flag to false
+                } else {
+                    // Append to the existing message
+                    const messagesDiv = document.getElementById('messages');
+                    var lastMessageDiv = messagesDiv.lastElementChild;
+                    lastMessageDiv.innerHTML += messageContent;
+                }
+
+                // Scroll to the bottom of the chatbox
+                const messagesDiv = document.getElementById('messages');
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            };
+
+            // Listen for the "end" event to close the EventSource
+            eventSource.addEventListener('end', function() {
+                cleanupEventSource(); // Clean up resources
+            });
+        }
+
+        // Function to handle image upload
+        document.getElementById('imageUpload').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const base64Image = e.target.result.split(',')[1]; // Get base64 data
+                    sendImage(base64Image); // Send the image to the backend
+                };
+                reader.readAsDataURL(file); // Convert image to base64
+            }
+        });
+
+        // Function to send the image to the backend
+        function sendImage(base64Image) {
+            fetch('/upload_image', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: base64Image }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Display the image in the chat
+                    const messagesDiv = document.getElementById('messages');
+                    messagesDiv.innerHTML += `<div class="message user-message"><strong>You:</strong> <img src="data:image/png;base64,${base64Image}" alt="Uploaded Image" style="max-width: 200px; height: auto;"></div>`;
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+                } else {
+                    console.error('Failed to upload image:', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error uploading image:', error);
+            });
+        }
+
+        // Clean up the EventSource and re-enable the send button
+        function cleanupEventSource() {
+            if (eventSource) {
+                eventSource.close(); // Close the EventSource
+            }
+            clearTimeout(responseTimeout); // Clear the timeout
+            isNewMessage = true; // Reset the flag
+            invalidResponseCount = 0; // Reset the invalid response counter
+            document.getElementById('sendButton').disabled = false; // Re-enable the send button
+            removeTypingIndicator(); // Remove the typing indicator
+        }
+
+        // Remove the typing indicator
+        function removeTypingIndicator() {
+            var typingIndicator = document.querySelector('.typing-indicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+        }
+
+        // Handle Enter key press
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage(); // Send the message when Enter is pressed
+            }
+        }
+    </script>
+</body>
+</html>
