@@ -1,4 +1,5 @@
-from flask import Flask, render_template, Response, request, jsonify
+import pythoncom  # Import pythoncom at the top
+from flask import Flask, render_template, Response, request, jsonify, url_for
 import json
 import requests
 import re
@@ -7,8 +8,15 @@ import base64
 from PIL import ImageGrab
 import io
 from datetime import datetime
+import pyttsx3
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
+app.config['SERVER_NAME'] = 'localhost:5000'  # For local development
+# or
+# app.config['SERVER_NAME'] = 'yourdomain.com'  # For production
+
+# Initialize COM
+pythoncom.CoInitialize()  # Initialize COM before using pyttsx3
 
 # Initialize the conversation with a system message
 conversation = [
@@ -88,6 +96,40 @@ if os.path.exists("memory.txt"):
         content = file.read()
         conversation.append({"role": "user", "content": content})
 
+
+def generate_audio(TEXT_TO_SPEAK):
+    
+    # Initialize the TTS engine once
+    engine = pyttsx3.init()
+    # Clean the input text
+    cleaned_text = re.sub(r'OPEN\([^)]*\)|SHUTDOWN\(\)|SCREENSHOT\(\)|RUN\([^)]*\)|MEMORY\([^)]*\)', '', TEXT_TO_SPEAK).strip()
+
+    # If the cleaned text is empty, return None
+    if not cleaned_text:
+        return None
+
+    try:
+        # Ensure 'static' folder exists in the same directory as the script
+        static_folder = os.path.join(os.getcwd(), "static")
+        if not os.path.exists(static_folder):
+            os.makedirs(static_folder)
+
+        audio_file_path = os.path.join(static_folder, "output.wav")
+
+        # Initialize the TTS engine
+        engine = pyttsx3.init()
+
+        engine.save_to_file(cleaned_text, audio_file_path)
+        engine.runAndWait()  # Ensure the speech processing completes
+
+
+    except Exception as e:
+        print(f"Error generating audio: {str(e)}")
+
+    # Use application context to generate the URL
+    with app.app_context():
+        return url_for('static', filename='output.wav')  # Return only the audio URL
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -108,7 +150,8 @@ def chat():
         return jsonify({"status": "success"})
 
     except Exception as e:
-        # Handle unexpected errors
+        # Log the error for debugging
+        print(f"Error in chat endpoint: {str(e)}")  # Log the error message
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/stream')
@@ -204,7 +247,7 @@ def stream():
                                                                     yield f"data: {json.dumps({'message': message_content})}\n\n"
                                                     except json.JSONDecodeError:
                                                         continue
-
+                                    
                                     elif "RUN(" in ai_message.upper():
                                         match = re.search(r'RUN\(([^)]+)\)', ai_message)
                                         if match:
@@ -215,6 +258,8 @@ def stream():
                                         if match:
                                             with open("memory.txt", "a") as file:
                                                 file.write(match.group(1) + " - " + str(datetime.now()) + "\n")
+                     
+                                    yield f"data: {json.dumps({'audio_url': generate_audio(ai_message)})}\n\n"  # Send the audio URL as part of the data
 
                                     yield "event: end\ndata: {}\n\n"  # Send an "end" event
                                     return

@@ -103,6 +103,46 @@
                 // Log the data to the console for debugging
                 console.log("Received data:", data);
 
+                if (data.screenshot) {
+                    // Display the screenshot in the chat as a separate message
+                    messagesDiv.innerHTML += `
+                        <div class="screenshot-container">
+                            <strong>NOVA:</strong> <img src="data:image/png;base64,${data.screenshot}" alt="Screenshot" style="max-width: 200px; height: auto;">
+                        </div>
+                    `;
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+                    return;
+                }
+
+                // Handle text messages separately
+                if (data.message) {
+                    var messageContent = data.message;
+                    // Remove the typing indicator
+                    removeTypingIndicator();
+
+                    if (isNewMessage) {
+                        // Start a new message with "NOVA:"
+                        messagesDiv.innerHTML += `<div class="message nova-message"><strong>NOVA:</strong> ${messageContent}</div>`;
+                        isNewMessage = false; // Set flag to false
+                    } else {
+                        // Append to the existing message
+                        var lastMessageDiv = messagesDiv.lastElementChild;
+                        lastMessageDiv.innerHTML += messageContent;
+                    }
+
+                    // Scroll to the bottom of the chatbox
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                }
+
+                    // Handle audio URL
+                if (data.audio_url) {
+                    // Create an audio element and play the audio
+                    var audio = new Audio(data.audio_url);
+                    audio.play().catch(error => {
+                        console.error('Error playing audio:', error);
+                    });
+                }
+
                 if (data.error) {
                     // Handle server-side errors
                     var errorMessage = data.error;
@@ -114,8 +154,6 @@
                     return;
                 }
 
-                var messageContent = data.message;
-
                 // Ignore undefined or empty content
                 if (!messageContent || messageContent === "undefined") {
                     invalidResponseCount++;
@@ -125,22 +163,6 @@
                     }
                     return;
                 }
-
-                // Remove the typing indicator
-                removeTypingIndicator();
-
-                if (isNewMessage) {
-                    // Start a new message with "NOVA:"
-                    messagesDiv.innerHTML += `<div class="message nova-message"><strong>NOVA:</strong> ${messageContent}</div>`;
-                    isNewMessage = false; // Set flag to false
-                } else {
-                    // Append to the existing message
-                    var lastMessageDiv = messagesDiv.lastElementChild;
-                    lastMessageDiv.innerHTML += messageContent;
-                }
-
-                // Scroll to the bottom of the chatbox
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
             };
 
             // Listen for the "end" event to close the EventSource
