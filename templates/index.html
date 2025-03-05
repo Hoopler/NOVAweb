@@ -29,7 +29,13 @@
             <!-- Button to trigger image upload -->
             <button id="uploadButton" onclick="document.getElementById('imageUpload').click()">Upload Image</button>
         </div>
+
+        <div id="inputbox">
+            <button id="muteButton" onclick="Mute()">Mute</button>
+        </div>
+
     </div>
+
 
     <!-- JavaScript for handling chat functionality -->
     <script>
@@ -39,6 +45,16 @@
         var invalidResponseCount = 0; // Counter to track invalid responses
         var maxInvalidResponses = 5; // Maximum allowed invalid responses
         var responseTimeout; // Timeout for handling stuck responses
+        var muted = false;
+
+        var muted = false; // Corrected to 'false' (lowercase)
+
+        function Mute()
+        {
+            muted = !muted
+            
+            document.getElementById("muteButton").innerHTML = muted ? "unmute" : "mute";
+        }
 
         // Function to remove the loading message with a fade-out animation
         function removeLoadingMessage() {
@@ -111,6 +127,7 @@
                         </div>
                     `;
                     messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+                    isNewMessage = true;
                     return;
                 }
 
@@ -136,11 +153,17 @@
 
                     // Handle audio URL
                 if (data.audio_url) {
-                    // Create an audio element and play the audio
-                    var audio = new Audio(data.audio_url);
-                    audio.play().catch(error => {
-                        console.error('Error playing audio:', error);
-                    });
+                    if(muted)
+                    {
+                        pass
+                    }
+                    else
+                    {
+                        var audio = new Audio(data.audio_url + '?t=' + new Date().getTime()); // Append a timestamp to the URL
+                        audio.play().catch(error => {
+                            console.error('Error playing audio:', error);
+                        });
+                    }
                 }
 
                 if (data.error) {

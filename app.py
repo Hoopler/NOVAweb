@@ -15,8 +15,6 @@ app.config['SERVER_NAME'] = 'localhost:5000'  # For local development
 # or
 # app.config['SERVER_NAME'] = 'yourdomain.com'  # For production
 
-# Initialize COM
-pythoncom.CoInitialize()  # Initialize COM before using pyttsx3
 
 # Initialize the conversation with a system message
 conversation = [
@@ -99,6 +97,7 @@ if os.path.exists("memory.txt"):
 
 def generate_audio(TEXT_TO_SPEAK):
     
+    pythoncom.CoInitialize() 
     # Initialize the TTS engine once
     engine = pyttsx3.init()
     # Clean the input text
@@ -122,7 +121,11 @@ def generate_audio(TEXT_TO_SPEAK):
         engine.save_to_file(cleaned_text, audio_file_path)
         engine.runAndWait()  # Ensure the speech processing completes
 
-
+        # Check if the file was created
+        if os.path.exists(audio_file_path):
+            pass
+        else:
+            print("Output file does not exist.")
     except Exception as e:
         print(f"Error generating audio: {str(e)}")
 
@@ -217,36 +220,7 @@ def stream():
                                             ]
                                         })
 
-                                        # Send the updated conversation back to the AI for a response
-                                        data = {
-                                            "model": "openai-large",
-                                            "messages": conversation,
-                                            "temperature": 0.7,
-                                            "max_tokens": 150,
-                                            "stream": True
-                                        }
-
-                                        with requests.post(url, headers=headers, json=data, stream=True) as r:
-                                            if r.status_code != 200:
-                                                yield f"data: {json.dumps({'error': 'Failed to fetch response.','status_code': r.status_code})}\n\n"
-                                                yield "event: end\ndata: {}\n\n"
-                                                return
-
-                                            for chunk in r.iter_lines():
-                                                if chunk:
-                                                    chunk_json = chunk.decode('utf-8')
-                                                    if chunk_json.startswith('data: '):
-                                                        chunk_json = chunk_json[len('data: '):]
-                                                    try:
-                                                        chunk_data = json.loads(chunk_json)
-                                                        if 'choices' in chunk_data and chunk_data['choices']:
-                                                            choice = chunk_data['choices'][0]
-                                                            if 'delta' in choice and 'content' in choice['delta']:
-                                                                message_content = choice['delta']['content']
-                                                                if message_content:
-                                                                    yield f"data: {json.dumps({'message': message_content})}\n\n"
-                                                    except json.JSONDecodeError:
-                                                        continue
+                                        yield from (generate())
                                     
                                     elif "RUN(" in ai_message.upper():
                                         match = re.search(r'RUN\(([^)]+)\)', ai_message)
@@ -258,7 +232,9 @@ def stream():
                                         if match:
                                             with open("memory.txt", "a") as file:
                                                 file.write(match.group(1) + " - " + str(datetime.now()) + "\n")
-                     
+
+                                    print(ai_message)
+
                                     yield f"data: {json.dumps({'audio_url': generate_audio(ai_message)})}\n\n"  # Send the audio URL as part of the data
 
                                     yield "event: end\ndata: {}\n\n"  # Send an "end" event
