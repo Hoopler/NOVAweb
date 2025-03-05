@@ -149,7 +149,7 @@ def chat():
             return jsonify({"status": "error", "message": "Message field is required"}), 400
 
         # Append the user's message to the conversation
-        conversation.append({"role": "user", "content": user_input+datetime.now()})
+        conversation.append({"role": "user", "content": user_input+" Sent at:"+str(datetime.now())})
         return jsonify({"status": "success"})
 
     except Exception as e:

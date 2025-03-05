@@ -34,6 +34,9 @@
             <button id="muteButton" onclick="Mute()">Mute</button>
         </div>
 
+        <div id="textDisplay"></div>
+        <canvas id="canvas"></canvas>
+
     </div>
 
 
@@ -45,10 +48,112 @@
         var invalidResponseCount = 0; // Counter to track invalid responses
         var maxInvalidResponses = 5; // Maximum allowed invalid responses
         var responseTimeout; // Timeout for handling stuck responses
-        var muted = false;
-
         var muted = false; // Corrected to 'false' (lowercase)
 
+        //----- VISUALIZER --------
+        var context = new (window.AudioContext || window.webkitAudioContext)(); // Define context globally
+
+
+        function startVisualizer(audio) {
+            var src = context.createMediaElementSource(audio);
+            var analyser = context.createAnalyser();
+
+            var canvas = document.getElementById("canvas");
+            var ctx = canvas.getContext("2d");
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            src.connect(analyser);
+            analyser.connect(context.destination);
+            analyser.fftSize = 256;
+
+            var bufferLength = analyser.frequencyBinCount;
+            var dataArray = new Uint8Array(bufferLength);
+
+            var WIDTH = canvas.width;
+            var HEIGHT = canvas.height;
+            var dotCount = 5;
+            var dots = [];
+
+            for (var i = 0; i < dotCount; i++) {
+                var dot = {
+                    x: WIDTH / (dotCount + 1) + i * 60, // Evenly space them across the canvas but closer
+                    y: (HEIGHT / 2) - 60, // Center vertically
+                    radiusX: 20, // Fixed horizontal radius (width)
+                    radiusY: 40, // Initial vertical radius (height)
+                    scaleFactor: 0.8, // Default scale factor for inner mid frequencies
+                    frequencyStart: 0,  // Starting frequency bin for this dot
+                    frequencyEnd: 0,    // Ending frequency bin for this dot
+                };
+
+                // Assign frequency ranges:
+                if (i === 2) { // Middle dot (low frequency)
+                    dot.frequencyStart = 0;                               // Start at 0% of the frequency spectrum
+                    dot.frequencyEnd = Math.floor(bufferLength * 0.3);    // End at 30% of the frequency spectrum
+                    dot.scaleFactor = 0.75;                                 // Stronger reaction for low frequencies
+                } else { // Outer dots (leftmost and rightmost) and inner dots (second and fourth)
+                    dot.frequencyStart = Math.floor(bufferLength * 0.1);  // Start at 30% of the frequency spectrum
+                    dot.frequencyEnd = Math.floor(bufferLength * 0.7);    // End at 70% of the frequency spectrum
+
+                    if (i === 0 || i === 4) { // Outer dots
+                        dot.scaleFactor = 0.5;  // Lower scale factor for outer dots
+                    } else { // Inner dots
+                        dot.scaleFactor = 1.2;  // Higher scale factor for inner dots
+                    }
+                }
+
+                dots.push(dot);
+            }
+
+            function renderFrame() {
+                requestAnimationFrame(renderFrame);
+                analyser.getByteFrequencyData(dataArray);
+
+                ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+
+                // Loop through each dot and adjust its height (vertical radius) based on frequency data
+                for (var i = 0; i < dotCount; i++) {
+                    var dot = dots[i];
+
+                    // Calculate the magnitude for this dot's frequency range
+                    var magnitude = 0;
+                    for (var j = dot.frequencyStart; j < dot.frequencyEnd; j++) {
+                        magnitude += dataArray[j]; // Sum frequency data for the specific range
+                    }
+                    magnitude /= (dot.frequencyEnd - dot.frequencyStart); // Average magnitude for that range
+
+                    // Apply the scale factor to control its growth
+                    var radiusY = magnitude * dot.scaleFactor; // Apply the adjusted scaling factor
+
+                    // Instead of setting the y position, adjust the radius to grow symmetrically
+                    dot.radiusY = radiusY;
+
+                    // Set the color of the dots to blue
+                    ctx.fillStyle = "rgb(0, 255, 255)"; // blue color
+                    ctx.shadowColor = "rgba(0,255,255,0.5)";
+                    ctx.shadowBlur = 20;
+
+                    // Draw the capsule shape (2D)
+                    ctx.beginPath();
+
+                    // Draw the top rounded part of the capsule (fixed radiusX and dynamic radiusY)
+                    ctx.arc(dot.x, dot.y - radiusY / 2, dot.radiusX, Math.PI, 0, false); // top rounded edge
+
+                    // Draw the bottom rounded part of the capsule (fixed radiusX and dynamic radiusY)
+                    ctx.arc(dot.x, dot.y + radiusY / 2, dot.radiusX, 0, Math.PI, false); // bottom rounded edge
+
+                    // Fill the shape to complete the capsule
+                    ctx.fill();
+
+                    ctx.closePath();
+                }
+            }
+
+            renderFrame();
+        }
+
+        //----------END OF VISUALIZER-------
         function Mute()
         {
             muted = !muted
@@ -159,10 +264,13 @@
                     }
                     else
                     {
+                        if (context.state === 'suspended') {
+                            context.resume();
+                        }
+
                         var audio = new Audio(data.audio_url + '?t=' + new Date().getTime()); // Append a timestamp to the URL
-                        audio.play().catch(error => {
-                            console.error('Error playing audio:', error);
-                        });
+                        audio.play()
+                        startVisualizer(audio)
                     }
                 }
 
